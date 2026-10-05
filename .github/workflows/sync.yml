@@ -1,0 +1,41 @@
+name: Sync from invokary.com
+
+# Copies the Platform Requirements files from invokary.com once a day, validates the JSON against
+# the published JSON Schema, and commits and tags only when a file changed.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Download
+        run: |
+          set -euo pipefail
+          for file in platform-requirements.json platform-requirements.csv platform-changes.csv platform-requirements.schema.json; do
+            curl --fail --silent --show-error --location "https://invokary.com/data/$file" --output "$file"
+          done
+      - name: Validate
+        run: npx --yes -p ajv-cli@5 -p ajv-formats@3 ajv validate --spec=draft2020 -c ajv-formats -s platform-requirements.schema.json -d platform-requirements.json
+      - name: Commit and tag
+        run: |
+          set -euo pipefail
+          git add platform-requirements.json platform-requirements.csv platform-changes.csv platform-requirements.schema.json
+          if git diff --cached --quiet; then echo "No change."; exit 0; fi
+          tag="v$(date -u +%Y.%m.%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync from invokary.com ($tag)"
+          git tag -f "$tag"
+          git push origin HEAD
+          git push origin "refs/tags/$tag" --force
